@@ -1,23 +1,28 @@
 -- Made by DevKing | V1
--- Dumps all renderable parts (BaseParts, MeshParts, etc.) in-game into JSON that you use the site for to rebuild it into a script thing
--- site is https://devking-rebuilder.netlify.app/
+-- Dumps all renderable BaseParts/MeshParts into JSON
+
+
 --> variables and imports
 local game = game
 local workspace = game:GetService("Workspace")
+local Drawing = Drawing
 
 --> constants
 local REFRESH_DELAY = 0.006
 local JSON_INDENT = "  "
+local GUI_WIDTH = 260
+local GUI_HEIGHT = 90
+local GUI_MARGIN = 20
 
---> wait until workspace ready
+--> wait for workspace to populate
 while not workspace or #workspace:GetChildren() == 0 do
     warn("[DevKing Dumper] Waiting for workspace to populate...")
-    wait(1)
+    wait(0.25)
 end
 
---> utility: JSON encode manually (DevKing Dumper doesn’t provide built-in)
+--> json utilities
 local function json_escape(str)
-    str = tostring(str)
+    str = tostring(str or "")
     return str:gsub("\\", "\\\\")
               :gsub("\"", "\\\"")
               :gsub("\n", "\\n")
@@ -26,19 +31,16 @@ local function json_escape(str)
 end
 
 local function vector3_to_table(v)
-    if not v then return nil end
-    return {X = v.X, Y = v.Y, Z = v.Z}
+    return v and {X = v.X, Y = v.Y, Z = v.Z} or nil
 end
 
 local function color3_to_table(c)
-    if not c then return nil end
-    return {R = c.R, G = c.G, B = c.B}
+    return c and {R = c.R, G = c.G, B = c.B} or nil
 end
 
 local function to_json(tbl, indent)
     indent = indent or ""
-    local pieces = {}
-    table.insert(pieces, "{\n")
+    local pieces = {"{\n"}
     local next_indent = indent .. JSON_INDENT
 
     for k, v in pairs(tbl) do
@@ -51,73 +53,121 @@ local function to_json(tbl, indent)
             table.insert(pieces, next_indent .. key_str .. tostring(v) .. ",\n")
         end
     end
-
     table.insert(pieces, indent .. "}")
     return table.concat(pieces)
 end
 
---> data storage
-local dump_data = {}
+--> visual setup
+local camera = workspace.CurrentCamera
+while not camera do
+    wait(0.1)
+    camera = workspace.CurrentCamera
+end
 
---> part checker
+local gui_bg = Drawing.new("Square")
+gui_bg.Filled = true
+gui_bg.Transparency = 0.8
+gui_bg.Color = Color3.fromRGB(15, 15, 15)
+gui_bg.Size = Vector2.new(GUI_WIDTH, GUI_HEIGHT)
+gui_bg.Position = Vector2.new(camera.ViewportSize.X - GUI_WIDTH - GUI_MARGIN, GUI_MARGIN)
+gui_bg.Visible = true
+
+local gui_title = Drawing.new("Text")
+gui_title.Text = "[DevKing Dumper v3]"
+gui_title.Position = Vector2.new(gui_bg.Position.X + 10, gui_bg.Position.Y + 8)
+gui_title.Color = Color3.fromRGB(255, 255, 255)
+gui_title.Outline = true
+gui_title.Visible = true
+
+local progress_bg = Drawing.new("Square")
+progress_bg.Filled = true
+progress_bg.Color = Color3.fromRGB(40, 40, 40)
+progress_bg.Size = Vector2.new(GUI_WIDTH - 40, 10)
+progress_bg.Position = Vector2.new(gui_bg.Position.X + 20, gui_bg.Position.Y + 45)
+progress_bg.Visible = true
+
+local progress_bar = Drawing.new("Square")
+progress_bar.Filled = true
+progress_bar.Color = Color3.fromRGB(0, 180, 255)
+progress_bar.Size = Vector2.new(0, 10)
+progress_bar.Position = progress_bg.Position
+progress_bar.Visible = true
+
+local progress_text = Drawing.new("Text")
+progress_text.Text = "Progress: 0%"
+progress_text.Position = Vector2.new(gui_bg.Position.X + 20, gui_bg.Position.Y + 65)
+progress_text.Color = Color3.fromRGB(255, 255, 255)
+progress_text.Outline = true
+progress_text.Visible = true
+
+--> dumper logic
 local function is_valid_part(obj)
     if not obj or not obj.ClassName then return false end
     local cname = obj.ClassName
-    return (cname == "Part" or cname == "MeshPart" or cname == "WedgePart" 
-        or cname == "TrussPart" or cname == "CornerWedgePart" 
-        or cname == "UnionOperation" or cname == "CylinderMesh" or cname == "BasePart")
+    return (
+        cname == "Part" or cname == "MeshPart" or cname == "WedgePart" or
+        cname == "TrussPart" or cname == "CornerWedgePart" or
+        cname == "UnionOperation" or cname == "BasePart"
+    )
 end
 
---> main logic
 local function collect_part_data()
     local all = workspace:GetDescendants()
     local valid = {}
-
     for _, obj in ipairs(all) do
         if is_valid_part(obj) then
             table.insert(valid, obj)
         end
     end
 
-    local valid_count = #valid
-    if valid_count == 0 then
-        warn("[DevKing Dumper] No valid renderable parts found in workspace after scan.")
+    local total = #valid
+    if total == 0 then
+        warn("[DevKing Dumper] No valid parts found.")
+        gui_title.Text = "[No Parts Found]"
         return
     end
 
-    print(string.format("[DevKing Dumper] Found %d parts to process.", valid_count))
+    print(string.format("[DevKing Dumper] Found %d parts. Dumping...", total))
 
+    local dump_data = {}
     for i, obj in ipairs(valid) do
-        local part_info = {
+        local pinfo = {
             Name = obj.Name or "Unknown",
-            ClassName = obj.ClassName or "Unknown",
-            Position = obj.Position and vector3_to_table(obj.Position) or nil,
-            Size = obj.Size and vector3_to_table(obj.Size) or nil,
-            Color = obj.Color and color3_to_table(obj.Color) or nil,
+            ClassName = obj.ClassName,
+            Position = vector3_to_table(obj.Position),
+            Size = vector3_to_table(obj.Size),
+            Color = color3_to_table(obj.Color),
             Transparency = obj.Transparency or 0,
-            Anchored = (obj.Anchored ~= nil) and obj.Anchored or false,
-            CanCollide = (obj.CanCollide ~= nil) and obj.CanCollide or false
+            Anchored = obj.Anchored or false,
+            CanCollide = obj.CanCollide or false
         }
 
         if obj:IsA("MeshPart") then
-            part_info.MeshId = obj.MeshId or "nil"
-            part_info.TextureId = obj.TextureId or "nil"
+            pinfo.MeshId = obj.MeshId or "nil"
+            pinfo.TextureId = obj.TextureId or "nil"
         end
 
-        table.insert(dump_data, part_info)
+        table.insert(dump_data, pinfo)
 
-        local percent = (i / valid_count) * 100
-        print(string.format("[DevKing Dumper] Progress: %d / %d (%.1f%%)", i, valid_count, percent))
+        -- smooth progress visuals
+        local percent = (i / total)
+        progress_bar.Size = Vector2.new((progress_bg.Size.X) * percent, 10)
+        progress_text.Text = string.format("Progress: %.1f%%", percent * 100)
         wait(REFRESH_DELAY)
     end
 
-    local final_json = to_json(dump_data)
-    setclipboard(final_json)
-    print(string.format("[DevKing Dumper] Copied JSON to clipboard successfully (%d parts).", valid_count))
+    local json_result = to_json(dump_data)
+    setclipboard(json_result)
+    print(string.format("[DevKing Dumper] Dump complete. %d parts copied to clipboard :).", total))
+    gui_title.Text = "[Dump Complete]"
+    progress_bar.Color = Color3.fromRGB(0, 255, 100)
+    progress_text.Text = string.format("Dumped %d parts!", total)
 end
 
 --> safe call
 local ok, err = pcall(collect_part_data)
 if not ok then
     warn("[DevKing Dumper] Error: " .. tostring(err))
+    gui_title.Text = "[Error Occurred]"
+    progress_bar.Color = Color3.fromRGB(255, 50, 50)
 end
