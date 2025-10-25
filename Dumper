@@ -73,7 +73,7 @@ gui_bg.Position = Vector2.new(camera.ViewportSize.X - GUI_WIDTH - GUI_MARGIN, GU
 gui_bg.Visible = true
 
 local gui_title = Drawing.new("Text")
-gui_title.Text = "[DevKing Dumper v3]"
+gui_title.Text = "[DevKing Dumper v1]"
 gui_title.Position = Vector2.new(gui_bg.Position.X + 10, gui_bg.Position.Y + 8)
 gui_title.Color = Color3.fromRGB(255, 255, 255)
 gui_title.Outline = true
