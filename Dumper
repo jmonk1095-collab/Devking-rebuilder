@@ -1,0 +1,123 @@
+-- Made by DevKing | V1
+-- Dumps all renderable parts (BaseParts, MeshParts, etc.) in-game into JSON that you use the site for to rebuild it into a script thing
+-- site is https://devking-rebuilder.netlify.app/
+--> variables and imports
+local game = game
+local workspace = game:GetService("Workspace")
+
+--> constants
+local REFRESH_DELAY = 0.006
+local JSON_INDENT = "  "
+
+--> wait until workspace ready
+while not workspace or #workspace:GetChildren() == 0 do
+    warn("[DevKing Dumper] Waiting for workspace to populate...")
+    wait(1)
+end
+
+--> utility: JSON encode manually (DevKing Dumper doesn’t provide built-in)
+local function json_escape(str)
+    str = tostring(str)
+    return str:gsub("\\", "\\\\")
+              :gsub("\"", "\\\"")
+              :gsub("\n", "\\n")
+              :gsub("\r", "\\r")
+              :gsub("\t", "\\t")
+end
+
+local function vector3_to_table(v)
+    if not v then return nil end
+    return {X = v.X, Y = v.Y, Z = v.Z}
+end
+
+local function color3_to_table(c)
+    if not c then return nil end
+    return {R = c.R, G = c.G, B = c.B}
+end
+
+local function to_json(tbl, indent)
+    indent = indent or ""
+    local pieces = {}
+    table.insert(pieces, "{\n")
+    local next_indent = indent .. JSON_INDENT
+
+    for k, v in pairs(tbl) do
+        local key_str = "\"" .. json_escape(k) .. "\": "
+        if type(v) == "table" then
+            table.insert(pieces, next_indent .. key_str .. to_json(v, next_indent) .. ",\n")
+        elseif type(v) == "string" then
+            table.insert(pieces, next_indent .. key_str .. "\"" .. json_escape(v) .. "\",\n")
+        else
+            table.insert(pieces, next_indent .. key_str .. tostring(v) .. ",\n")
+        end
+    end
+
+    table.insert(pieces, indent .. "}")
+    return table.concat(pieces)
+end
+
+--> data storage
+local dump_data = {}
+
+--> part checker
+local function is_valid_part(obj)
+    if not obj or not obj.ClassName then return false end
+    local cname = obj.ClassName
+    return (cname == "Part" or cname == "MeshPart" or cname == "WedgePart" 
+        or cname == "TrussPart" or cname == "CornerWedgePart" 
+        or cname == "UnionOperation" or cname == "CylinderMesh" or cname == "BasePart")
+end
+
+--> main logic
+local function collect_part_data()
+    local all = workspace:GetDescendants()
+    local valid = {}
+
+    for _, obj in ipairs(all) do
+        if is_valid_part(obj) then
+            table.insert(valid, obj)
+        end
+    end
+
+    local valid_count = #valid
+    if valid_count == 0 then
+        warn("[DevKing Dumper] No valid renderable parts found in workspace after scan.")
+        return
+    end
+
+    print(string.format("[DevKing Dumper] Found %d parts to process.", valid_count))
+
+    for i, obj in ipairs(valid) do
+        local part_info = {
+            Name = obj.Name or "Unknown",
+            ClassName = obj.ClassName or "Unknown",
+            Position = obj.Position and vector3_to_table(obj.Position) or nil,
+            Size = obj.Size and vector3_to_table(obj.Size) or nil,
+            Color = obj.Color and color3_to_table(obj.Color) or nil,
+            Transparency = obj.Transparency or 0,
+            Anchored = (obj.Anchored ~= nil) and obj.Anchored or false,
+            CanCollide = (obj.CanCollide ~= nil) and obj.CanCollide or false
+        }
+
+        if obj:IsA("MeshPart") then
+            part_info.MeshId = obj.MeshId or "nil"
+            part_info.TextureId = obj.TextureId or "nil"
+        end
+
+        table.insert(dump_data, part_info)
+
+        local percent = (i / valid_count) * 100
+        print(string.format("[DevKing Dumper] Progress: %d / %d (%.1f%%)", i, valid_count, percent))
+        wait(REFRESH_DELAY)
+    end
+
+    local final_json = to_json(dump_data)
+    setclipboard(final_json)
+    print(string.format("[DevKing Dumper] Copied JSON to clipboard successfully (%d parts).", valid_count))
+end
+
+--> safe call
+local ok, err = pcall(collect_part_data)
+if not ok then
+    warn("[DevKing Dumper] Error: " .. tostring(err))
+end
